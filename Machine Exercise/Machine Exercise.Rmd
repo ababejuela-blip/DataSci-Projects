@@ -1,4 +1,4 @@
-# Machine Exercise 1
+# GAM and GLM
 ```{r}
 # Loading of libraries
 
