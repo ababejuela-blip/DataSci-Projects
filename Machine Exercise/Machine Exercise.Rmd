@@ -1,0 +1,412 @@
+# Machine Exercise 1
+```{r}
+# Loading of libraries
+
+library(tidyr)
+library(gam)
+library(ggplot2)
+library(dplyr)
+library(car)
+library(lmtest)
+library(mgcv)
+```
+
+```{r}
+# Loading of SENIC data
+mydata = read.csv('/Users/alton/Documents/R workspace/Stat218/SENIC.csv')
+head(mydata)
+```
+```{r}
+# Data Preparation
+mydata$region = factor(mydata$region)
+```
+
+
+```{r}
+# Creation of training set and test set
+set.seed(218)
+n = round(nrow(mydata)*0.8)
+indices = sample(1:nrow(mydata), n, replace = FALSE)
+
+# Training set
+train.data = mydata[indices,]
+
+# Test set
+test.data = mydata[-indices,]
+
+```
+
+```{r}
+# Response and predictors observation
+scatterplotMatrix(mydata[,c("stay", "age", "inf", "cult", "beds", "region", "census", "nurses", "facilities")],
+                  smooth = FALSE, regLine = FALSE)
+```
+
+# OLS Fit
+```{r}
+# LM Fit
+ols.fit = lm(stay ~ age + inf + cult + beds + region + census + nurses + facilities, data = mydata)
+summary(ols.fit)
+```
+When using all the variables as a predictor for out stay, it is expected that some of these predictors are significant in explaining the variability within our response variable like the predicotrs cult, beds and facilities. We got a very low p-value which suggests that at least one in our predictors significantly explain the variability wih our response variable.
+
+```{r}
+par(mfrow = c(2,2))
+plot(ols.fit)
+```
+When checking the residuals vs fitted graph, it looks like our plotted best fit for our predictors almost follow the dashed line, which can suggest the linerity between our response and predictors
+
+```{r}
+#Testing for constant error variance
+ncvTest(ols.fit)
+```
+Based on Breusch-Pagan test, the assumption of homoscedasticity is violated. The test gave a very low P-value and looking
+at the graph of residuals vs fitted values, the plotted data points are scattered around the reference line.
+
+```{r}
+# Testing for normality of error terms
+shapiro.test(ols.fit$residuals)
+
+# Density plot of our response variable
+plot(density(mydata$stay), main = "Density Plot", col = "blue", lwd = 2)
+```
+Based on Shapiro-Wilk test with a 0.05 signifiance level, we reject null hypothesis which suggests that our data
+does not follow a normal distribution. Looking at the plotted Q-Q Residuals and Standardized Residuals, some data
+points on the right side deviates from the reference line which can affect the normality of our data.
+
+## GLM Fit
+```{r}
+glm.fit = glm(stay ~ inf + census + nurses, family = "Gamma", data = mydata)
+summary(glm.fit)
+```
+For our fitted GLM model, I chose the Gamma family distribution for our response variable with a canonical link of inverse function. The model yields a 382.84 AIC which we can use for comparison to the other models. For the significance of our each predictors, they all have a very low p-value which means that they are significant with the variability winthin our response variable.
+
+```{r}
+par(mfrow = c(2,2))
+
+plot(glm.fit)
+```
+For the plot of our GLM model, it can be seen in our Q-Q Residuals graph that there are some improvement within our plotted points where they almost follow the diagonal line across.
+
+```{r}
+# Checking for influence measures for possible refinement in GLM model
+inf = influence.measures(glm.fit)
+head(inf)
+
+s <- which(apply(inf$is.inf, 1, any))
+mydata[s,]
+```
+
+```{r}
+inf$infmat[s,]
+```
+Upon checking of influential measures, there are 10 observations which are considered as influential for the fitted GLM model. However, I will not remove these observations for the subjective reason of these observations are special cases but seems to be valid.
+
+All predictors have a very low p-value which indicates that the three predictors explain the variability with our response variable. Any form of refinement where a removal of predictors will not be done.
+
+```{r}
+# OLS model AIC
+AIC(ols.fit)
+
+# GLM model AIC
+AIC(glm.fit)
+```
+
+```{r}
+# OLS SSE
+sum(ols.fit$residuals^2)
+
+# GLM SSE
+sum(glm.fit$residuals^2)
+```
+
+```{r}
+# OLS Fit for training data
+ols.fit2 = lm(stay ~ age + inf + cult + beds + region + census + nurses + facilities, data = train.data)
+ols.predict2 = predict(ols.fit2, newdata = test.data)
+
+# GLM Fit for training data
+glm.fit2 = glm(stay ~ inf + census + nurses, data = train.data, family = "Gamma")
+glm.predict2 = predict(glm.fit2, newdata = test.data)
+```
+
+
+```{r}
+# SSPE for OLS test set
+sum((ols.predict2 - test.data$stay)^2)
+
+# SSPE for GLM
+sum((glm.predict2 - test.data$stay)^2)
+```
+
+```{r}
+par(mfrow = c(1,2))
+
+plot(test.data$stay, ols.predict2)
+plot(test.data$stay, 1 / glm.predict2)
+```
+Although our GLM model shows a lower SSE on our actual/complete data, the OLS got lower SSPE than the GLM on the
+unseen data. This suggests that in this specific case, our OLS performs better on test sets compared to GLM while on the training set, the GLM performs better.
+
+As can been on the graph for the actual data vs predicted data, the OLS is distributed diagonally better than the GLM.
+
+
+# Testing for Non-linearity for stay with inf, cenus and nurses
+```{r}
+# Application of basic GAM model with natural spline
+gam.fit = mgcv::gam(stay ~ ns(inf) + ns(census) + ns(nurses), data = mydata)
+summary(gam.fit)
+```
+I fitted a simple model of GAM model with natural spline for each of my predictors just to see the significane of my smoothers with each of my predictors. The p-value for the three of my three predictors are significant in explaining the variability with my response variable which means that the smoothing parameter helped with the non-linearity
+
+I will be testing each variables with a normal linear model and the one with a cubic regression model just to see the fit of the one with linear model significantly improve with the application of cubic regression.
+```{r}
+# Observation for stay and inf relationship
+
+plot(mydata$inf, mydata$stay)
+abline(lm(mydata$stay ~ mydata$inf), col="red", lwd=2)
+
+# LM for stay and inf
+lm.fit.inf = lm(stay ~ inf, data = mydata)
+plot(lm.fit.inf, which = 1)
+
+# Test for linearity using crPlots
+crPlot(lm.fit.inf, variable = "inf")
+
+# Polynomial Regression for stay inf
+poly.fit.inf = lm(stay ~ poly(inf, degree = 3), data = mydata)
+
+crPlots(poly.fit.inf)
+
+# Data observation
+ggplot(mydata, aes(inf, stay)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, color = "red") + 
+  geom_smooth(method = "lm", formula = y ~ poly(x, degree = 3), color = "blue") 
+```
+
+
+```{r}
+# Observation for stay and census relationship
+
+plot(mydata$census, mydata$stay)
+abline(lm(mydata$stay ~ mydata$census), col="red", lwd=2)
+
+# LM for stay and census
+lm.fit.census = lm(stay ~ census, data = mydata)
+plot(lm.fit.census, which = 1)
+
+# Test for linearity using crPlots
+crPlot(lm.fit.census, variable = "census")
+
+# Polynomial Regression for stay and census
+poly.fit.census = lm(stay ~ poly(census, degree = 3), data = mydata)
+
+crPlots(poly.fit.census)
+
+# Data observation
+ggplot(mydata, aes(census, stay)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, color = "red") + 
+  geom_smooth(method = "lm", formula = y ~ poly(x, degree = 3), color = "blue") 
+```
+
+
+```{r}
+# Observation for stay and nurses relationship
+
+plot(mydata$nurses, mydata$stay)
+abline(lm(mydata$stay ~ mydata$nurses), col="red", lwd=2)
+
+# LM for stay and nurses
+lm.fit.nurses = lm(stay ~ nurses, data = mydata)
+plot(lm.fit.nurses, which = 1)
+
+# Test for linearity using crPlots
+crPlot(lm.fit.nurses, variable = "nurses")
+
+# Polynomial Regression for stay and nurses
+poly.fit.nurses = lm(stay ~ poly(nurses, degree = 3), data = mydata)
+
+crPlots(poly.fit.nurses)
+
+
+# Data observation
+ggplot(mydata, aes(nurses, stay)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, color = "red") + 
+  geom_smooth(method = "lm", formula = y ~ poly(x, degree = 3), color = "blue") 
+```
+
+```{r}
+# Comparison of SSE of linear model
+predictors_sse1 = c(sum(lm.fit.inf$residuals^2), sum(lm.fit.census$residuals^2), sum(lm.fit.nurses$residuals^2))
+
+# Comparison of SSE of cubic regression model
+predictors_sse2 = c(sum(poly.fit.inf$residuals^2), sum(poly.fit.census$residuals^2), sum(poly.fit.nurses$residuals^2))
+
+predictors = c("inf", "census", "nurses")
+
+cbind(predictors, predictors_sse1, predictors_sse2)
+```
+So what I did was fit a simple linear model and a cubic regression with each of my predictor to see which one improved by checking their crPlots.
+
+For inf, the fitted line for the crPlot has a minimal change wherein the fitted line for the cubic regression seems to deviate more compared to the simple linear model. Its SSE became lower when cubic regression was used so it can suggest that the cubic regression did not help that much with the fit.
+
+For census, the crPlot for the cubic regression became significantly better. Its SSE too improved a lot compared to its original simple linear model. This can suggest that the cubic regression helped a lot when fitting the model so it can indicate a non-linearity between our response variable
+
+Lastyly for nurses, the fitted line for crPlot seems to improve too but the SSE between our simple linear and cubic regression have a minimal difference which can suggest that the cubic regression did not helped a lot with the possible non-linearity.
+
+In conclusion, I will choose the census variable over the other two because it has a higher changes with our SSE when conducting a cubic regression. This can indicate a strong non-linear relationship between our predictor and response variable.
+
+
+# GAM fitting with polynomial regression
+
+```{r}
+for (i in 2:15) {
+  poly.fit.loop = lm(stay ~ poly(census, degree = i), data = mydata)
+  aic = AIC(poly.fit.loop)
+  sse = sum(poly.fit.loop$residuals^2)
+  adjusted_r2 = summary(poly.fit.loop)$adj.r.squared
+  
+  cat("Degree:", i, " AIC:", aic, "SSE: ", sse, "Adjusted R^2: ", adjusted_r2, "\n")
+}
+```
+The degree 4 shows the lowest AIC among the different degrees but not the lowest SSE. The decrease in SSE beyond degree = 4 is minimal and the continious decrease in our SSE when increasing the degree can indicate an overfitting so I will be sticking with the simplier model with low df to avoid further overfitting
+
+```{r}
+poly.fit = lm(stay ~  poly(census, degree = 4), data = mydata)
+
+summary(poly.fit)
+```
+```{r}
+par(mfrow = c(2,2))
+plot(poly.fit)
+```
+
+
+# GAM fitting with step function regression
+```{r}
+increments = c(0.1, 0.2, 0.25, 0.5)
+
+# Generate sequences for each increment
+sequences = lapply(increments, function(inc) seq(0, 1, by = inc))
+
+for (s in sequences) {
+  breaks = unique(quantile(mydata$census, probs  = s))
+  stepwise.fit.loop = lm(stay ~ cut(census, breaks = breaks, include.lowest = TRUE), data = mydata)
+  aic2 = AIC(stepwise.fit.loop)
+  sse = sum(stepwise.fit.loop$residuals^2)
+  adjusted_r2 = summary(stepwise.fit.loop)$adj.r.squared
+  
+  cat("Quantile Sequence:", s, " AIC:", aic2, "SSE: ", sse, "Adjusted R^2: ", adjusted_r2, "\n")
+}
+```
+For stepwise function, I chose 4 different set of cuts and evaluated its performance. The one with the lowest AIC and SSE is the one where I use the quartiles as the cut, it has fewer cuts compared to the other two but it performs better in terms of AIC and SSE on the actual data. Since it only has 4 cuts, we can avoid possibly avoid overfitting in this model compared to the ones with more cuts.
+
+```{r}
+# Stepwise function with quartile cuts
+stepwise.fit = lm(stay ~ cut(census, breaks = unique(quantile(mydata$census, probs =c(0, 0.25, 0.5, 0.75, 1))), include.lowest = TRUE), data = mydata)
+
+summary(stepwise.fit)
+```
+```{r}
+par(mfrow = c(2,2))
+plot(stepwise.fit)
+```
+# GAM fitting with regression spline
+```{r}
+# Data observation
+ggplot(mydata, aes(census, stay)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ ns(x, df = 3), color = "red", se = F) + 
+  geom_smooth(method = "lm", formula = y ~ ns(x, df = 4), color = "blue", se = F) +  
+  geom_smooth(method = "lm", formula = y ~ ns(x, df = 5), color = "violet", se = F) +
+  geom_smooth(method = "lm", formula = y ~ ns(x, df = 6), color = "orange", se = F) +  
+  geom_smooth(method = "lm", formula = y ~ ns(x, df = 7), color = "green", se = F) +
+  geom_smooth(method = "lm", formula = y ~ ns(x, df = 8), color = "gray", se = F) + 
+  geom_smooth(method = "lm", formula = y ~ ns(x, df = 9), color = "black", se = F) + 
+
+for(j in 3:12) {
+  spline.fit.loop = lm(stay ~ ns(census, df = j), data = mydata)
+  aic3 = AIC(spline.fit.loop)
+  rss = sum(spline.fit.loop$residuals^2)
+  
+  cat("Df:", j, " AIC:", aic3, "RSS: ", rss, "\n")
+}
+```
+
+For the spline regression, I fitted a lm model that has a natural cubic spline with 6 knots for my predictor. I chose this one because when evaluating the SSE and AIC of my models with different df, the one from df = 7 to df = 8 has a very minimal change compared to its lower dfs e.g. df = 7 vs df = 6. Since it has fewer knots, were are also trying to avoid overfitting so it will be better to choose the simplier model with the most efficient performance.
+
+```{r}
+spline.fit = lm(stay ~ ns(census, df = 7), data = mydata)
+
+summary(spline.fit)
+```
+
+```{r}
+par(mfrow = c(2,2))
+plot(spline.fit)
+```
+
+
+```{r}
+anova(poly.fit, stepwise.fit, spline.fit, test = "Chisq")
+```
+```{r}
+anova(poly.fit, spline.fit, test = "Chisq")
+```
+ 
+  Looking at the ANOVA of model 1: polynomial regression, model 2: stepwise regression and model 3: spline regression, the change of RSS from model 1 to model 2 is from 255.25 to 308.12 respectively. The fit of model 1 became worse when we used a stepwise regression. While comparing model 2 to model 3, we can say that its RSS greatly improved  with a very low p-value which means a significant improvement with the fit. Lastly, comparing model 1 to model 3, we can see that the RSS of model 3 is lower, but testing its performance based on its p-value, suggests that the model does not significantly improve when using a spline function.
+  
+```{r}
+AIC(poly.fit)
+AIC(stepwise.fit)
+AIC(spline.fit)
+
+summary(poly.fit)$adj.r.squared
+summary(stepwise.fit)$adj.r.squared
+summary(spline.fit)$adj.r.squared
+```
+Since the AIC and adjusted r squared of the polynomial fit and spline regression fit has a very minimal difference. I will be choosing to use my spline fit with my GAM model since it allows a smooth relationship with my response variable nad my predictors. I will not be able to use the poly form my GAM model because essentially, a GAM without a spline is just basically a GLM. 
+
+```{r}
+# GAM Fit for training data
+gam.fit.final = gam(stay ~ inf + nurses + ns(census, df = 7), data = train.data)
+gam.predict = predict(gam.fit.final, newdata = test.data)
+
+# GLM Fit for training data
+glm.fit2 = glm(stay ~ inf + census + nurses, data = train.data, family = "Gamma")
+glm.predict2 = predict(glm.fit2, newdata = test.data)
+
+```
+
+
+```{r}
+# SSPE for GAM model test set
+a = sum((gam.predict - test.data$stay)^2)
+
+# SSE for GAM model training set
+b =sum(gam.fit.final$residuals^2)
+
+# SSPE for GLM model test set
+c =sum((glm.predict2 - test.data$stay)^2)
+
+# SSE for GLM model training set
+d = sum(glm.fit2$residuals^2)
+
+cbind("Model" = c("GAM", "GLM"), "SSPE" = c(a,c), "SSE" = c(b,d))
+```
+Looking at the performance of the fitted GAM model vs the GLM model to our training set, the GAM shows a lower SSPE for our test set compared to our GLM. While looking at the SSE for both models, that are fitted to the training set, the GLM yields a better result with lower value. It has a very low SSE which can indicate an overfitting since it performs significantly better in training set compared to unseen data.
+
+In terms of interpretability, the GLM will be easier to understand compared to our GAM but if you are after for the predictive power of the model, it is reasonable to choose the GAM model over the GLM
+
+```{r}
+par(mfrow = c(1,2))
+
+plot(test.data$stay, 1 / glm.predict2)
+plot(test.data$stay, gam.predict)
+```
+
+
+  

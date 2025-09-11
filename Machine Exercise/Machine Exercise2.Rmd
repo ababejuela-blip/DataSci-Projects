@@ -1,0 +1,591 @@
+# Machine Exervise 2
+
+```{r}
+# Loading of libraries
+library(tidyr)
+library(ggplot2)
+library(glmnet)  
+library(dplyr)   
+library(psych)
+library(lmtest)
+library(car)
+library(e1071)
+library(MASS)
+library(pROC)
+```
+
+
+```{r}
+# Loading of data
+mydata = read.csv('/Users/alton/Documents/R workspace/Stat218/prostate.csv') %>% 
+  dplyr::select(2:11)
+
+
+# Convert categorical variables to factors
+mydata$svi = factor(mydata$svi)
+```
+
+
+```{r}
+summary(mydata)
+```
+
+```{r}
+# Creation of training set and test set
+
+# Training set
+train.data = mydata[mydata$train == TRUE,]
+
+# Test set
+test.data = mydata[mydata$train == FALSE,]
+
+train.data = train.data[,-10]
+test.data = test.data[,-10]
+```
+
+## Continuous Response
+```{r}
+# Fitting an ordinary LM model for training data
+lm_model = lm(lpsa ~ ., data = train.data)
+
+summary(lm_model)
+plot(lm_model)
+
+# Predictions for test data
+lm_predict = predict(lm_model, newdata = test.data)
+lm_ssr2 = sum((test.data$lpsa - lm_predict)^2)
+lm_sst2 = sum((test.data$lpsa - mean(test.data$lpsa))^2)
+lm_rsq2 = 1 - (lm_ssr2 / lm_sst2)
+
+```
+
+```{r}
+# Checking for correlation
+
+vif(lm_model)
+
+cor_matrix = cor(train.data[, sapply(train.data, is.numeric)])
+print(cor_matrix)
+
+library(corrplot)
+corrplot(cor_matrix, method = "color", tl.col = "black")
+
+```
+
+
+### Fitting a Ridge Regresssion
+```{r}
+# Variables for our training data
+X = model.matrix(lpsa ~ ., data = train.data)[, -1]
+y = train.data$lpsa
+
+# Variables for our test data
+X2 = model.matrix(lpsa ~ ., data = test.data)[, -1]
+y2 = test.data$lpsa
+```
+
+```{r}
+set.seed(218)
+
+lambdas_try = 10^seq(-3, 6, length.out = 100)
+
+ridge_cv = cv.glmnet(X, y, alpha = 0, lambda = lambdas_try,
+                     standardize = TRUE, nfolds = 10)
+
+plot(ridge_cv)
+```
+
+```{r}
+ridge_cv
+# Best cross-validated lambda
+ridge_lambda = ridge_cv$lambda.min
+
+ridge_lambda
+```
+```{r}
+# Ridge Regression model with the best lambda tested
+ridge_model = glmnet(X, y, alpha = 0, lambda = ridge_lambda, standardize = TRUE)
+
+# Performance evaluation for our training data
+ridge_yhat = predict(ridge_model, X, s = ridge_lambda)
+ridge_ssr = t(y - ridge_yhat) %*% (y - ridge_yhat)
+ridge_rsq = cor(y, ridge_yhat)^2
+
+# MSE for training data
+ridge_mse = mean((y - ridge_yhat)^2)
+
+paste0("Ridge Regression training data SSR: ", ridge_ssr)
+paste0("Ridge Regression training data Rsquared: ", ridge_rsq)
+paste0("Ridge Regression training MSE: ", ridge_mse)
+
+# Ridge coefficients
+ridge_model$beta
+
+```
+```{r}
+# Performance evaluation for our test data
+ridge_yhat2 = predict(ridge_model, X2, s = ridge_lambda)
+ridge_ssr2 = t(y2 - ridge_yhat2) %*% (y2 - ridge_yhat2)
+ridge_rsq2 = cor(y2, ridge_yhat2)^2
+
+# MSE for test data
+ridge_mse2 = mean((y2 - ridge_yhat2)^2)
+
+paste0("Ridge Regression test data SSR: ", ridge_ssr2)
+paste0("Ridge Regression test data Rsquared: ", ridge_rsq2)
+paste0("Ridge Regression test data MSE: ", ridge_mse2)
+```
+
+### Fitting a LASSO Regression
+```{r}
+set.seed(218)
+
+lasso_cv = cv.glmnet(X, y, alpha = 1, lambda = lambdas_try,
+                     standardize = TRUE, nfolds = 10)
+
+plot(lasso_cv)
+```
+```{r}
+lasso_cv
+# Best cross-validated lambda
+lasso_lambda = lasso_cv$lambda.min
+
+lasso_lambda
+```
+```{r}
+# LASSO model with the best lambda tested
+lasso_model = glmnet(X, y, alpha = 1, lambda = lasso_lambda, standardize = TRUE)
+
+# Performance evaluation for our training data
+lasso_yhat = predict(lasso_model, X, s = lasso_lambda)
+lasso_ssr = t(y - lasso_yhat) %*% (y - lasso_yhat)
+lasso_rsq = cor(y, lasso_yhat)^2
+
+# MSE for training data
+lasso_mse = mean((y - lasso_yhat)^2)
+
+paste0("LASSO Regression training data SSR: ", lasso_ssr)
+paste0("LASSO Regression training data Rsquared: ", lasso_rsq)
+paste0("LASSO Regression training MSE: ", lasso_mse)
+
+# Coefficients of the 
+lasso_model$beta
+```
+```{r}
+# Performance evaluation for our test data
+lasso_yhat2 = predict(lasso_model, X2)
+lasso_ssr2 = t(y2 - lasso_yhat2) %*% (y2 - lasso_yhat2)
+lasso_rsq2 = cor(y2, lasso_yhat2)^2
+
+# MSE for training data
+lasso_mse2 = mean((y2 - lasso_yhat2)^2)
+
+paste0("LASSO Regression test data SSR: ", lasso_ssr2)
+paste0("LASSO Regression test data Rsquared: ", lasso_rsq2)
+paste0("LASSO Regression test data MSE: ", lasso_mse2)
+```
+
+
+### Fitting Elastic Net model
+```{r}
+set.seed(218)
+# Set training control
+enet_train_control = trainControl(method = "repeatedcv",
+                              number = 10,
+                              repeats = 3,
+                              search = "grid",
+                              verboseIter = FALSE)
+```
+
+
+```{r}
+# Train the model
+enet_model = train(lpsa ~ .,
+                           data = train.data,
+                           method = "glmnet",
+                           tuneLength = 25,
+                           trControl = enet_train_control)
+```
+
+```{r}
+# Best fitting lambda and alpha for elastic net mode
+
+enet_lambda = enet_model$bestTune$lambda
+enet_alpha = enet_model$bestTune$alpha
+
+paste0("Elastic net best lambda: ", enet_lambda)
+paste0("Elastic net best alpha: ", enet_alpha)
+```
+
+```{r}
+# Performance evaluation for training data
+enet_yhat = predict(enet_model, train.data[,-9])
+enet_ssr <- t(y - enet_yhat) %*% (y - enet_yhat)
+enet_rsq = cor(y, enet_yhat)^2
+
+# MSE for training data
+enet_mse = mean((y - lasso_yhat)^2)
+
+paste0("Elastic net training data SSR: ", enet_ssr)
+paste0("Elastic net training data Rsquared: ", enet_rsq)
+paste0("Elastic net training data MSE: ", enet_mse)
+
+# Checking coefficients
+coef(enet_model$finalModel, s = enet_lambda)
+```
+```{r}
+# Performance evaluation for test data
+enet_yhat2 = predict(enet_model, test.data[,-9])
+enet_ssr2 <- t(y2 - enet_yhat2) %*% (y2 - enet_yhat2)
+enet_rsq2 = cor(y2, enet_yhat2)^2
+
+# MSE for training data
+enet_mse2 = mean((y2 - lasso_yhat2)^2)
+
+paste0("Elastic net test data SSR: ", enet_ssr2)
+paste0("Elastic net test data Rsquared: ", enet_rsq2)
+paste0("Elastic net test data MSE: ", enet_mse2)
+```
+
+
+
+```{r}
+# Results of the three models
+results1 = data.frame(
+  "model" = c("ols", "ridge", "lasso", "elastic net"),
+  "lambda" = c("", ridge_lambda, lasso_lambda, enet_lambda),
+  "alpha" = c("", 0, 1, enet_alpha),
+  "Training data SSR" = c(sum(residuals(lm_model)^2), ridge_ssr, lasso_ssr, enet_ssr),
+  "Training data R_squared" = c(summary(lm_model)$r.squared, ridge_rsq, lasso_rsq, enet_rsq),
+  "Training data MSE" = c("", ridge_mse, lasso_mse, enet_mse),
+  "Test data SSR" = c(lm_ssr2, ridge_ssr2, lasso_ssr2, enet_ssr2),
+  "Test data R_squared" = c(lm_rsq2, ridge_rsq2, lasso_rsq2, enet_rsq2),
+  "Test data MSE" = c("", ridge_mse2, lasso_mse2, enet_mse2)
+)
+
+results1
+```
+
+
+I did a simple OLS model for baseline for my different Regularization techniques for regression. Surprisingly, its R squared is as high as our 3 models (ridge, lasso, elastic net). I did a VIF (Variance Inflation Factor) to check for multicollinearity with my predictors. They play around the value of 1-3 so there's a minimum amount of correlation within our predictors. Since the application of our regularization technique can help with our problem with our multicollinearity, let's compare its performance.
+
+For our Ridge Regression model, it has the lowest R squared for our training data but got the highest R squared for our test data. It's MSE for training set is the highest and the lowest in test set. For its coefficient lcavol, lweight, svi, and lbph the the important features in predicting our lpsa ( |coef| >  0.1).
+
+For our LASSO Regression model, its R squared is highest for our trainning set and has a similar accuracy with our elastic net. For its coefficients, gleason zero out with our chosen lambda set to 0.012. Its important features if we set the same standard as our Ridge Regression are lcavol, lweight, lbph, svi. It is the same with our Ridge Regression and If I try to set my lambda to 1se instead of the minimum, lcavol, lweight, and svi will be the only features that will be retained.
+
+Lastly, if we look at our Elastic Net Regression model, based on our cross-validation, the optimal alpha is 0.1 and the lambda is 0.05. Its alpha is closer to 0 compared to 1 so it penalizes the model with the L2-penalty rather than the L1-penalty. For its coefficients it zero out gleason and using the same threshold as our previous models, its important features are  lcavol, lweight, svi, lcp and lbph. For its accuracy, it has the same performance with our LASSO model where it perform better wit the test set.
+
+Choosing the right model is not only dependent of its prediction capabilities but also its interpretability. The coefficients of these model are not the exact effect (units) on our response variable. Due to its shrinkage and penalty method, it is regularized and some coefficients were even eliminated. It is harder to interpret compared to our simpler linear model but it can help with the minimal correlation between our predictors. I will be choosing the elastic net model in the reason of their performance are pretty close but in terms of interpretation, LASSO and Elastic Net is better because of its feature selection where we can see better which features matter since it ignores some feature by setting its coefficient to zero. And also for the reason that  we optimized two hyper parameters, alpha and lambda, compared to the Ridge and LASSO where we just fix its alpha to either one or zero. The combination of the two methods in the elastic model compliments each other were Ridge helps with the dependency and unstableness to data of our LASSO model. It also helps with our different scaling in the model where some of it is in the logarithmic form.
+
+For the features of your elastic net model. Both Age and LCP have a negative correlation with our response variable (log of prostate specific antigen). While lcavol, lweight, lbph, svi and pgg45 have a positive correlation with lpsa. However, if we look at the coefficient of gleason, it zeroed out showing that it is not important when explaining the variance within our lpsa. Although it is the only variable that zeroed out, if I look at it subjectively and set a threshold of ( |coef| >  0.15), age, lbph, lcp and pgg45 will fall-off because they have a weak correlation with our response variable.
+
+```{r}
+# Checking coefficients
+coef(enet_model$finalModel, s = enet_lambda)
+```
+
+## Binary Response
+```{r}
+train.data$psalvl = factor(ifelse(exp(train.data$lpsa) > 4.0, "1", "0"))
+test.data$psalvl = factor(ifelse(exp(test.data$lpsa) > 4.0, "1", "0"))
+head(train.data)
+```
+### Fitting Logistic Regression Model
+```{r}
+# Logistic Regression model
+logres_model = glm(psalvl ~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, data = train.data,
+                   family = binomial(link="logit"))
+summary(logres_model)
+```
+```{r}
+plot(logres_model)
+```
+
+```{r}
+# Test evaluation for training data
+logres_trainpred = ifelse(predict(logres_model, train.data, type = "response") > 0.5, 1, 0)
+table(train.data$psalvl, logres_trainpred)
+
+logres_trainaccu = mean(train.data$psalvl == logres_trainpred) # Training data's accuracy
+logres_trainaccu
+#measures::AUC(train.data$psalvl, predict(logres_model, train.data, type = "response"))
+
+
+
+
+# Test evaluation for test data
+logres_testpred = ifelse(predict(logres_model, test.data, type = "response") > 0.5, 1, 0)
+table(test.data$psalvl, logres_testpred)
+logres_testaccu = mean(test.data$psalvl == logres_testpred)
+logres_testaccu
+```
+
+### Fitting Naive-Bayes Model
+```{r}
+# Naive Bayes Model
+nb_model = naiveBayes(psalvl ~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, data = train.data,)
+
+```
+
+```{r}
+# Test evaluation for training data
+nb_trainpred = predict(nb_model, train.data)
+table(train.data$psalvl, nb_trainpred)
+
+nb_trainaccu = mean(train.data$psalvl == nb_trainpred) # Training data's accuracy
+nb_trainaccu
+
+# Test evaluation for test data
+nb_testpred = predict(nb_model, test.data)
+table(test.data$psalvl, nb_testpred)
+
+  nb_testaccu = mean(test.data$psalvl == nb_testpred) # Test data's accuracy
+nb_testaccu
+```
+### Fitting LDA Model
+```{r}
+# LDA Model
+lda_model = lda(psalvl ~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, data = train.data,)
+plot(lda_model)
+lda_model$scaling
+```
+```{r}
+# Test evaluation for training data
+lda_trainpred = predict(lda_model, train.data, type = "response")
+table(train.data$psalvl, lda_trainpred$class)
+
+lda_trainaccu = mean(train.data$psalvl == lda_trainpred$class) # Training data's accuracy
+lda_trainaccu
+
+# Test evaluation for test data
+lda_testpred = predict(lda_model, test.data, type = "response")
+table(test.data$psalvl, lda_testpred$class)
+
+lda_testaccu = mean(test.data$psalvl == lda_testpred$class) # Test data's accuracy
+lda_testaccu
+```
+```{r}
+results2 = data.frame(
+  "model" = c("logistic regression", "naive-bayes", "lda"),
+  "train_accuracy" = c(logres_trainaccu, nb_trainaccu, lda_trainaccu),
+  "test_accuracy" = c(logres_testaccu, nb_testaccu, lda_testaccu)
+)
+
+results2
+```
+```{r}
+# Quick distribution check
+for (i in 1:ncol(train.data)) {
+  if (is.numeric(train.data[[i]])) {
+    hist(train.data[[i]],
+         main = colnames(train.data)[i],
+         xlab = "",
+         col = "skyblue")
+  }
+}
+
+```
+```{r}
+hist()
+```
+
+
+When it comes to our linear classifiers, I compared the performance of these three models, Naive Bayes, Logistic Regression and LDA where p > 1.
+
+For Naive Bayes, we have an assumption that our variables are strongly independent but going back to our VIF and correlation matrix, we can see a little to medium correlation between some of our features. However, it was mentioned that most of the time it works out well so this model can be an option too.
+
+For our LDA where we have multiple predictors, we have an assumption that our observations follows a multivariate normal distribution but when we are simply looking at the distribution of our predictors, not all of it follows or nearly follows a normal distribution and some of these even show a well-separation if each classes which is bad when using LDA.
+
+Lastly, if we consider a logistic regression model, we are assuming that our predictors have a linear relationship with our response variable. Outliers can heavily impact this model too and if we look at our plotted pearson residuals, there are some outliers within the graph but the our residuals mostly follow the fitted line so it can be a good sign for linearity.
+
+If we are looking for the right model, I would say that the logistic regression is the best between the three models because when we look at the model's accruacy, logres model and lda returns the same accuracy for train and test set and our NB model has a close accuracy within the train set but a significant decrease in the accuracy of the test set. This suggests an overfitting within our model. Looking at the accruacy of logres and lda, although they have a high train set accuracy, it was backed up by a high test set accuracy so the issue of overfitting is minimal between these two models. The reason that I chose the logistic regression model over the LDA is simply because of its interpretability. We can see the coefficients of each of our predictors and how it affects our response variable. We can also do a simple test of significance for each of our features using our p-value unlike in LDA.
+
+Looking at our Logistic Regression Model and doing a simple test with their p-values at 0.05, none of these variables will seem to be significant but if we interpret it subjectively where those with a very small p-value are the significant ones, it can suggest lcavol, lweight, lbph are the significant features where lcavol,lweight, and lbph has a positive correlation with our response variable. And just like our previous model, age still has a negative correlation with our response variable but lcp is positve now (previously negative in elastic net model) 
+
+## Categorical Response
+```{r}
+train.data$psacategory = 
+  factor(
+    case_when(
+      exp(train.data$lpsa) <= 4.0 ~ "low risk",
+      exp(train.data$lpsa) > 4.0 & exp(train.data$lpsa) < 10.0 ~ "at risk",
+      TRUE ~ "high risk"
+    )
+  )
+
+test.data$psacategory = 
+  factor(
+    case_when(
+      exp(test.data$lpsa) <= 4.0 ~ "low risk",
+      exp(test.data$lpsa) > 4.0 & exp(test.data$lpsa) < 10.0 ~ "at risk",
+      TRUE ~ "high risk"
+    )
+  )
+
+head(train.data)
+```
+### Fitting CART Model
+```{r}
+cart_model = rpart(psacategory ~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, data = train.data, method = "class")
+rpart.plot(cart_model)
+```
+When fitting a simple CART model, it looks like lweight and lcavol were the only features considered in classifying our categorical response. In the first node, if your lweight is >=7 you are automatically considered as high risk but if not, you will go the second node where your lcavol is evaluated if it is >= 1.2, if yes then you are really high risk and if not you are considered as at risk. Low risk was unused in the decision tree.
+
+```{r}
+# Prediction for training data
+cart_trainpred = predict(cart_model, train.data, type = "class")
+table(train.data$psacategory, cart_trainpred)
+
+cart_trainaccu = mean(train.data$psacategory==cart_trainpred)
+cart_trainaccu
+```
+```{r}
+# Prediction for training data
+cart_testpred = predict(cart_model, test.data, type = "class")
+table(test.data$psacategory, cart_testpred)
+
+cart_testaccu = mean(test.data$psacategory==cart_testpred)
+cart_testaccu
+```
+Looking at the accuracy of our CART model, low risk observations were mostly tagged in at risk and none if it was predicted right. Our model's accuracy is only at 68% for our training set and 60% for our test set.
+
+### Fitting Bagging Model
+```{r}
+# Bagging for training set
+set.seed(218)
+bag_model= adabag::bagging(psacategory ~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, data = train.data, method = "class",
+                  coob=TRUE, mfinal=100, ntree = 100)
+bag_model$importance
+```
+
+```{r}
+# Bagging prediction for training set
+bag_trainpred = predict(bag_model, train.data, type = "class")
+table(train.data$psacategory, bag_trainpred$class)
+
+# Accuracy
+bag_trainaccu = mean(train.data$psacategory==bag_trainpred$class)
+bag_trainaccu
+
+# AUC for training set
+colnames(bag_trainpred$prob) = levels(train.data$psacategory)
+bag_trainroc = multiclass.roc(train.data$psacategory, bag_trainpred$prob)
+bag_trainauc = bag_trainroc$auc
+
+
+
+
+# Bagging prediction for test set
+bag_testpred = predict(bag_model, test.data, type = "class")
+table(test.data$psacategory, bag_testpred$class)
+
+# Accuracy
+bag_testaccu = mean(test.data$psacategory==bag_testpred$class)
+bag_testaccu
+
+# AUC for test set
+colnames(bag_testpred$prob) = levels(test.data$psacategory)
+bag_testroc = multiclass.roc(test.data$psacategory, bag_testpred$prob)
+bag_testauc = bag_testroc$auc
+```
+### Fitting Random Forest Model
+```{r}
+# Random Forest for training set
+rf_model = randomForest(psacategory ~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, data = train.data, method = "class",
+                  importance = TRUE, mfinal=100)
+rf_model$importance
+```
+
+```{r}
+# Random forest training set accuracy
+rf_trainpred = predict(rf_model, train.data, method = "class")
+table(train.data$psacategory, rf_trainpred)
+
+rf_trainaccu = mean(train.data$psacategory==rf_model$predicted)
+rf_trainaccu
+
+# AUC for training set
+rf_trainroc = multiclass.roc(train.data$psacategory, predict(rf_model, train.data, type = "prob"))
+rf_trainauc = rf_trainroc$auc
+
+# Random forest test set accuracy
+rf_testpred = predict(rf_model, test.data, method = "class")
+table(test.data$psacategory, rf_testpred)
+
+
+rf_testaccu = mean(test.data$psacategory==rf_testpred)
+rf_testaccu
+
+# AUC for test set
+rf_testroc = multiclass.roc(test.data$psacategory, predict(rf_model, test.data, type = "prob"))
+rf_testauc = rf_testroc$auc
+```
+### Fitting Boosting Model
+```{r}
+# Boosting model for training data
+boost_model = boosting(psacategory ~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, data = train.data, method = "class",
+                  importance = TRUE, mfinal=100, ntree = 500)
+boost_model$importance
+```
+
+```{r}
+# Predictions for training data
+boost_trainpred= predict(boost_model, train.data, method = "class")
+boost_trainpred$confusion
+
+boost_trainaccu = mean(train.data$psacategory == boost_trainpred$class)
+boost_trainaccu
+
+# AUC for training set
+colnames(boost_trainpred$prob) = levels(train.data$psacategory)
+boost_trainroc = multiclass.roc(train.data$psacategory, boost_trainpred$prob)
+boost_trainauc = boost_trainroc$auc
+
+# Predictions for test data
+boost_testpred= predict(boost_model, test.data, method = "class")
+boost_testpred$confusion
+
+boost_testaccu = mean(test.data$psacategory == boost_testpred$class)
+boost_testaccu
+
+# AUC for test set
+colnames(boost_testpred$prob) = levels(test.data$psacategory)
+boost_testroc = multiclass.roc(test.data$psacategory, boost_testpred$prob)
+boost_testauc = boost_testroc$auc
+```
+```{r}
+results3 = data.frame(
+  "model" = c("cart", "bagging", "random forest", "boosting"),
+  "train_accuracy" = c(cart_trainaccu, bag_trainaccu, rf_trainaccu, boost_trainaccu),
+  "test_accuracy" = c(cart_testaccu, bag_testaccu, rf_testaccu, boost_testaccu),
+  "train_AUC" = c("", bag_trainauc, rf_trainauc, boost_trainauc),
+  "test_AUC" = c("", bag_testauc, rf_testauc, boost_testauc)
+)
+
+results3
+```
+For my ensemble learning models, I conmpared the performance of Bagging, Random Forest and Boosting with each models having 100 iterations. I tested different number of decision trees per iteration just to see what will fit for each model. For my Bagging, I started with 100 trees and see if the accuracy increases from the default, it has a slight increase for the training and test accuracy but after increasing it to 250, it didn't change that much so I stopped at 100. For Random Forest, I tried increasing its number of trees per iteration but it seems like it also stop progressing somewhere between 100 and 250 iterations so I stopped at 100 trees. Lastly for my Boosting model, I tried going from 100, 250, 500 750 and 1000 but its performance became worse as I increase the number of trees after 500 so I stopped at 500 number of trees.
+
+Comparing each model's accuracy, Boosting got the highest when it comes to the training set and the lowest with the test set. For our Random Forest, it's  training set accuracy is the lowest among the three models and looking at comparing it to our initial CART model, it is even lower. However, its test set accuracy is the highest, the same as our Boosting model.
+
+A very high training set accuracy but a low test set accuracy suggests an issue of overfitting within our model and a very high test set accuracy but a low training set accuracy suggests an underfitting. If we look at the AUC for training set and test set of Random FOrest and Boosting, it is pretty identical but in terms of balance trade-off between bias and variance, Random Forest is better when looking at its accuracy.
+
+In conclusion, I will be choosing the Random Forest because of the balance in accuracy for its training set and test set. It is very important compared to having a model where one is significantly higher than the other. It's AUC is on par too with our Boosting model so the way it identifies our categorical response is very high.
+
+For its important features, lcavol, lweight has the same importance in predicting our categorical response next with age and lbph.
+# Summary
+```{r}
+summary4 = data.frame(
+  "model" = c("elastic_net", "logistic_regression", "random_forest"),
+  "train.accuracy" = c(sqrt(enet_mse), logres_trainaccu, rf_trainaccu),
+  "test.accuracy" = c(sqrt(enet_mse2), logres_testaccu, rf_testaccu),
+  "important.features" = c("lcavol, lweight, svi", "lcavol, lweight, lbph", "lcavol, lweight, age, lbph")
+)
+
+summary4
+```
+Finally when comparing our model's important features, lcavol and lweight are the only consistent features to our three different models. The svi, lbph, age and pgg are some the features that have a minimal-moderate effect when predicting our response variable (psa).
+
+Lastly if we were to compare the models accuracy, our continious response got an rmse of 0.66 for training set and 0.70 for test set. Comparing it with the accuracy of our categorical and binary response is not straightforward but if our estimate, on average is somewhere 0.68 units away from the actual and compare it with the distribution of our response variable(lpsa). If we ballpark approximate it, our predicted value is like a half units away from our IQR so we can assume that our model's accuracy plays around 70% - 85%. Since it is just a conceptual estimation, this is not directly accurate but we get an idea on how can we compare it to our other two models.
+
+The best model for me will be our logistic regression, our logistic regression shows the highest training set and test set accuracy and it has a balace trade-off between our bias and variance since the accuracy between observed and unobserved data is fairly close, we can assume that this model has a minimal overfitting. In terms of interpretability, it is better too since we can see the actual coefficients of each of our features and visualizing the effects of these features are more accessible compared to our two models. Doing ANOVA to test the importance of each features is easier too since we can access each of its p-value and since we want to have the simplest model that can explain the variability of our response variable, it is the best since we don't have to optimize hyperparameters and tweak different number of iterations and wait longer run-time.

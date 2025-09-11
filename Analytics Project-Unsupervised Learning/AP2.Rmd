@@ -1,0 +1,155 @@
+Uploading of libraries
+```{r}
+library(ggplot2)
+library(corrplot)
+library(elasticnet)
+```
+
+Data Cleansing
+```{r}
+mydata = read.csv('/Users/alton/Documents/R workspace/Stat218/data_ap_2022.csv')
+
+mydata = mydata[, !grepl("uuid|freq|_count", names(mydata))]
+
+# Replace NA with 0
+mydata[is.na(mydata)] = 0
+
+# Replace empty strings "" with 0
+mydata[mydata == ""] = 0
+
+# Note: NULLs usually don't exist inside data frames as values, but if you want to be safe:
+mydata[sapply(mydata, is.null)] = 0
+
+head(mydata)
+```
+
+```{r}
+head(mydata)
+```
+
+```{r}
+mydata_standard = mydata[, 8:ncol(mydata)]
+mydata_standard = scale(mydata_standard)
+
+# Remove columns that are all NA (if any appear after scaling)
+mydata_standard = mydata_standard[, colSums(!is.na(mydata_standard)) > 0]
+mydata_standard = mydata_standard[, apply(mydata_standard, 2, sd, na.rm = TRUE) != 0]
+```
+
+```{r}
+sum(is.na(mydata_standard))          # Total number of NA values
+
+```
+
+
+```{r}
+colnames(mydata_standard)
+```
+Sparse PCA model limited to 5 PCs and limiting 5 features each.
+```{r}
+spca_model = elasticnet::spca(mydata_standard, K = 5, type = "predictor", sparse = "varnum", para = c(5,5,5,5,5))
+
+spca_model$loadings
+```
+Plotting the variance of the spca model
+```{r}
+# Projected SCores
+spca_scores = as.matrix(mydata_standard) %*% spca_model$loadings
+
+# Compute proportion and cumulative variance (already done)
+var_explained = apply(spca_scores^2, 2, mean)
+total_var = sum(apply(as.matrix(mydata_standard)^2, 2, mean))
+prop_var_explained = var_explained / total_var
+cum_var = cumsum(prop_var_explained)
+
+plot(prop_var_explained, type = "b", pch = 16, col = "#1f77b4",
+     ylim = c(0, 0.3),
+     xlab = "Principal Component",
+     ylab = "Proportion of Variance Explained",
+     main = "PCA - Variance Explained by Each Component",
+     cex = 1.2, lwd = 2,
+     xaxt = "n")
+axis(1, at = 1:length(prop_var_explained))
+
+    # Add cumulative variance line
+    lines(cum_var, type = "b", pch = 17, col = "#d62728", lwd = 2)
+    
+    # Add gridlines
+    grid(col = "gray90", lty = "dotted")
+    
+    # Add legend
+    legend("topright", legend = c("Individual", "Cumulative"),
+           col = c("#1f77b4", "#d62728"),
+           pch = c(16, 17), lty = 1, lwd = 2, bty = "n")
+    
+    # Optional: horizontal reference line at 0.2 or other thresholds
+    abline(h = 0.2, col = "gray60", lty = 2)
+
+
+# Plot both individual and cumulative variance
+plot(prop_var_explained, type = "l")
+cum_var
+
+```
+K-means clustering, 3 clusters
+```{r}
+set.seed(218)
+cluster_model = kmeans(spca_scores, centers = 3)
+table(cluster_model$cluster)
+```
+
+```{r}
+library(cluster)
+```
+
+```{r}
+# Step 1: Compute distance matrix from SPCA scores
+dist_matrix = dist(spca_scores)
+
+# Step 2: Apply Classical Multidimensional Scaling (MDS) to reduce to 2D
+mds_coords = cmdscale(dist_matrix, k = 2)
+```
+
+Plotting the clusters
+```{r}
+plot(mds_coords,
+     col = cluster_model$cluster,
+     pch = 19,
+     xlab = "MDS Dimension 1",
+     ylab = "MDS Dimension 2",
+     main = "K-means Clustering Visualized with MDS")
+legend("topright",
+       legend = paste("Cluster", 1:3),
+       col = 1:4, pch = 19)
+
+```
+Additional plot
+```{r}
+library(factoextra)
+```
+
+
+```{r}
+fviz_cluster(cluster_model, data = spca_scores, geom = "point", ellipse.type = "norm") +
+  theme_minimal()
+```
+
+Observation of clustering
+```{r}
+modified_mydata = cbind(mydata,"kmeans_cluster" = cluster_model$cluster)
+
+table(modified_mydata$adm3_en, modified_mydata$kmeans_cluster)
+```
+```{r}
+cluster_model$centers
+```
+```{r}
+library(summarytools)
+```
+```{r}
+freq(modified_mydata$kmeans_cluster)
+```
+```{r}
+ctable(modified_mydata$adm3_en, modified_mydata$kmeans_cluster)
+```
+
