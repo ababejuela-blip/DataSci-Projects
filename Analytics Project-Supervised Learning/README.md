@@ -1,1 +1,2 @@
+# Objectives
 This project analyzes Religiocentrism in the Philippines using Ordinal Logistic Regression and Binary Logistic Regression. It explores how religion and education level influence the belief that one’s own religion is the only acceptable one, based on the 2019 World Values Survey (WVS) data.
