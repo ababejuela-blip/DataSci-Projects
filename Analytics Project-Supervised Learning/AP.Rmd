@@ -1,0 +1,322 @@
+```{r}
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(nnet)
+library(corrplot)
+library(car)
+library(ordinal)
+library(summarytools)
+library(VGAM)
+library(brant)
+library(MASS)
+library(pscl)
+library(pROC)
+```   
+
+
+```{r}
+mydata = read.csv('/Users/alton/Documents/R workspace/Stat218/WVS_PHL.csv') %>% 
+  dplyr::select("Q170", education = "Q275R", religion = "Q289") %>% 
+  filter(if_all(everything(), ~ .x > 0))
+
+mydata$Q170 = factor(mydata$Q170,
+                      levels = 4:1,
+                      labels = c("Strongly disagree", "Disagree", "Agree", "Strongly agree"),
+                      ordered = TRUE)
+
+mydata$education = factor(ifelse(mydata$education == 1, "Primary",
+                           ifelse(mydata$education == 2, "Secondary",
+                           ifelse(mydata$education == 3, "Post-secondary",
+                           ifelse(mydata$education == 4, "Tertiary", NA)))),
+                           ordered = TRUE,
+                           levels = c("Primary", "Secondary", "Post-secondary", "Tertiary")
+                          )
+
+mydata$religion = factor(ifelse(mydata$religion == 0, "No denomination",
+                          ifelse(mydata$religion == 1, "Roman Catholic",
+                          ifelse(mydata$religion == 2, "Protestant",
+                          ifelse(mydata$religion == 3, "Orthodox",
+                          ifelse(mydata$religion == 4, "Jew",
+                          ifelse(mydata$religion == 5, "Muslim",
+                          ifelse(mydata$religion == 6, "Hindu",
+                          ifelse(mydata$religion == 7, "Buddhist",
+                          ifelse(mydata$religion == 8, "Other Christian",
+                          ifelse(mydata$religion == 9, "Other", NA))))))))))
+                         )
+
+mydata$religion = droplevels(relevel(mydata$religion, ref = "Roman Catholic"))
+mydata$education = droplevels(mydata$education)
+
+mydata = na.omit(mydata)
+
+```
+
+```{r}
+str(mydata)
+```
+```{r}
+levels(mydata$education)
+levels(mydata$religion)
+levels(mydata$Q170)
+```
+
+```{r}
+# Creation of test and train set
+
+set.seed(218)
+n = round(nrow(mydata)*0.8)
+indices = sample(1:nrow(mydata), n, replace = FALSE)
+
+# Training set
+train.data = mydata[indices,]
+
+# Test set
+test.data = mydata[-indices,]
+
+str(train.data)
+str(test.data)
+```
+
+
+```{r}
+# Cross tab with counts and percentages for education
+freq(mydata$education)
+
+# Cross tab with counts and percentages for religion
+freq(mydata$religion)
+
+freq(mydata$Q170)
+```
+
+```{r}
+# Cross tab with counts and percentages for response and Sex
+ctable(mydata$education, mydata$Q170)
+
+# Cross tab with counts and percentages for response and Religion
+ctable(mydata$religion, mydata$Q170)
+```
+
+
+```{r}
+model_po = clm(Q170 ~  education  + religion, data = mydata, link = "logit")
+
+summary(model_po)
+```
+```{r}
+levels(mydata$Q170)
+```
+
+```{r}
+nominal_test(model_po)
+```
+```{r}
+brant(model_po2)
+```
+
+```{r}
+AIC(model_po)
+BIC(model_po)
+```
+
+```{r}
+model_po_null = clm(Q170 ~  1, data = mydata, link = "logit")
+anova(model_po_null, model_po)
+```
+```{r}
+model_ppo = vglm(Q170 ~ education + religion,
+                  family = cumulative(parallel = ~ education, reverse = FALSE),
+                  data = mydata)
+```
+
+
+```{r}
+coef(model_ppo, matrix = TRUE)
+```
+
+
+```{r}
+any(is.na(mydata$Q170))
+any(is.na(mydata$education))
+any(is.na(mydata$religion))
+any(!is.finite(mydata$Q170))
+any(!is.finite(mydata$education))
+any(!is.finite(mydata$religion))
+```
+
+
+```{r}
+model_po2 = polr(Q170 ~ education + religion, data = mydata, Hess = TRUE)
+
+summary(model_po2)
+```
+
+```{r}
+summary(model_po)
+```
+
+```{r}
+nominal_test(model_po2)
+```
+
+
+```{r}
+nagelkerke(model_po)
+```
+
+```{r}
+mydata2 = read.csv('/Users/alton/Documents/R workspace/Stat218/WVS_PHL.csv') %>% 
+  dplyr::select("Q170", education = Q275R, religion = Q289) %>% 
+  filter(if_all(everything(), ~ .x > 0))
+
+mydata2$Q170 = factor(ifelse(mydata2$Q170 >= 3, 1, 0))
+
+mydata2$education = factor(ifelse(mydata2$education == 1, "Primary",
+                           ifelse(mydata2$education == 2, "Secondary",
+                           ifelse(mydata2$education == 3, "Post-secondary",
+                           ifelse(mydata2$education == 4, "Tertiary", NA)))),
+                           ordered = TRUE,
+                           levels = c("Primary", "Secondary", "Post-secondary", "Tertiary")
+                          )
+
+mydata2$religion = factor(ifelse(mydata2$religion == 0, "No denomination",
+                          ifelse(mydata2$religion == 1, "Roman Catholic",
+                          ifelse(mydata2$religion == 2, "Protestant",
+                          ifelse(mydata2$religion == 3, "Orthodox",
+                          ifelse(mydata2$religion == 4, "Jew",
+                          ifelse(mydata2$religion == 5, "Muslim",
+                          ifelse(mydata2$religion == 6, "Hindu",
+                          ifelse(mydata2$religion == 7, "Buddhist",
+                          ifelse(mydata2$religion == 8, "Other Christian",
+                          ifelse(mydata2$religion == 9, "Other", NA))))))))))
+                         )
+
+mydata2$religion = droplevels(relevel(mydata2$religion, ref = "Roman Catholic"))
+mydata2$education = droplevels(mydata2$education)
+
+mydata2 = na.omit(mydata2)
+
+str(mydata2)
+```
+
+
+```{r}
+# Creation of test and train set
+set.seed(218)
+n2 = round(nrow(mydata2)*0.8)
+indices = sample(1:nrow(mydata2), n2, replace = FALSE)
+
+# Training set
+train.data2 = mydata2[indices,]
+
+# Test set
+test.data2 = mydata2[-indices,]
+
+str(train.data2)
+str(test.data2)
+```
+
+```{r}
+model_binary = glm(Q170~ education + religion, data = mydata2, family = "binomial")
+summary(model_binary)
+```
+
+```{r}
+plot(model_binary)
+```
+```{r}
+# Get the predicted probabilities from your model
+pred_probs <- predict(model_binary, type = "response")
+
+# Create ROC curve using actual values and predicted probabilities
+roc_obj <- roc(mydata2$Q170, pred_probs)
+
+# Plot the ROC curve
+plot(roc_obj, col = "blue", lwd = 2, main = "ROC Curve - Binary Logistic Model")
+abline(a = 0, b = 1, lty = 2, col = "gray")  # reference line
+text(0.6, 0.4, paste("AUC =", round(auc(roc_obj), 3)), col = "blue", cex = 1.2)
+
+```
+
+```{r}
+vif(model_binary)
+```
+
+```{r}
+model_potrain = clm(Q170 ~  education  + religion, data = train.data, link = "logit")
+
+# Predict on training set
+pred_train_po = predict(model_potrain, newdata = train.data, type = "class")
+
+# Predict on test set
+pred_test_po = predict(model_potrain, newdata = test.data, type = "class")
+
+# Compute accuracy
+acc_train_po = mean(as.character(pred_train_po$fit) == as.character(train.data$Q170))
+acc_test_po = mean(as.character(pred_test_po$fit) == as.character(test.data$Q170))
+
+print("Training Set")
+table(pred_train_po$fit,train.data$Q170)
+print("Test Set")
+table(pred_test_po$fit,test.data$Q170)
+
+str(pred_train_po)
+
+str(pred_train_po)
+str(train.data$Q170)
+```
+
+
+```{r}
+# Fit the model on training data
+model_binarytrain = glm(Q170 ~ education + religion, data = train.data2, family = "binomial")
+
+# Predict on training data
+pred_train_binary = ifelse(predict(model_binarytrain, newdata = train.data2) > 0.5, 1, 0)
+
+# Predict on test data
+pred_test_binary = ifelse(predict(model_binarytrain, newdata = test.data2) > 0.5, 1, 0)
+
+# Compute accuracy
+acc_train_binary = mean(pred_train_binary == train.data2$Q170)
+acc_test_binary = mean(pred_test_binary == test.data2$Q170)
+
+print("Training Set")
+table(pred_train_binary,train.data2$Q170)
+print("Test Set")
+table(pred_test_binary,test.data2$Q170)
+```
+
+```{r}
+# AIC and BIC
+aic_po <- AIC(model_po)
+bic_po <- BIC(model_po)
+aic_binary <- AIC(model_binary)
+bic_binary <- BIC(model_binary)
+
+# Pseudo R-squared
+pseudo_po <- pR2(model_po)
+pseudo_binary <- pR2(model_binary)
+
+# --- Create comparison table ---
+model_comparison <- data.frame(
+  Model = c("Proportional Odds", "Binary Logistic"),
+  AIC = c(aic_po, aic_binary),
+  BIC = c(bic_po, bic_binary),
+  Loglik = c(logLik(model_po), logLik(model_binary)),
+  McFadden_R2 = c(pseudo_po["McFadden"], pseudo_binary["McFadden"]),
+  CoxSnell_R2 = c(pseudo_po["r2ML"], pseudo_binary["r2ML"]),
+  Nagelkerke_R2 = c(pseudo_po["r2CU"], pseudo_binary["r2CU"]),
+  Train_Accuracy = c(round(acc_train_po, 4), round(acc_train_binary, 4)),
+  Test_Accuracy = c(round(acc_test_po, 4), round(acc_test_binary, 4))
+)
+
+# Print table
+print(model_comparison)
+```
+
+```{r}
+str(train.data2$y)
+str(pred_train_binary)
+```
+
